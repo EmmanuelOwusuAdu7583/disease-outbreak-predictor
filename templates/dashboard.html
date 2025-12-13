@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Disease Outbreak Prediction System - Africa</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f0f4f8;
+            color: #333;
+        }
+
+        header {
+            background: linear-gradient(135deg, #1a365d, #2b6cb0);
+            color: white;
+            padding: 20px 30px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.2);
+        }
+
+        header h1 { font-size: 22px; font-weight: 700; }
+        header p { font-size: 13px; opacity: 0.85; margin-top: 4px; }
+
+        .badge {
+            background: rgba(255,255,255,0.2);
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 12px;
+            font-weight: 600;
+        }
+
+        .container { max-width: 1400px; margin: 0 auto; padding: 30px 20px; }
+
+        .summary-cards {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+            gap: 20px;
+            margin-bottom: 30px;
+        }
+
+        .card {
+            background: white;
+            border-radius: 12px;
+            padding: 20px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            border-left: 4px solid #2b6cb0;
+        }
+
+        .card.critical { border-left-color: #c53030; }
+        .card.high { border-left-color: #dd6b20; }
+        .card.medium { border-left-color: #d69e2e; }
+        .card.success { border-left-color: #276749; }
+
+        .card h3 { font-size: 12px; color: #666; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 10px; }
+        .card .value { font-size: 30px; font-weight: 700; color: #222; }
+        .card .subtitle { font-size: 12px; color: #888; margin-top: 5px; }
+
+        .charts-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(500px, 1fr));
+            gap: 24px;
+            margin-bottom: 30px;
+        }
+
+        .chart-card {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        }
+
+        .chart-card h2 {
+            font-size: 16px;
+            font-weight: 600;
+            color: #333;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #eee;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .chart-container { position: relative; height: 280px; }
+
+        .risk-table-section {
+            background: white;
+            border-radius: 12px;
+            padding: 24px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            margin-bottom: 30px;
+        }
+
+        .risk-table-section h2 {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 20px;
+            padding-bottom: 12px;
+            border-bottom: 1px solid #eee;
+        }
+
+        table { width: 100%; border-collapse: collapse; }
+        th {
+            background: #f7fafc;
+            padding: 12px;
+            text-align: left;
+            font-size: 12px;
+            color: #666;
+            font-weight: 600;
+            border-bottom: 2px solid #eee;
+            text-transform: uppercase;
+        }
+        td { padding: 12px; font-size: 13px; border-bottom: 1px solid #f0f0f0; }
+        tr:hover { background: #f7fafc; }
+
+        .risk-badge {
+            padding: 4px 10px;
+            border-radius: 12px;
+            font-size: 11px;
+            font-weight: 700;
+            text-transform: uppercase;
+        }
+
+        .risk-badge.Critical { background: #fed7d7; color: #c53030; }
+        .risk-badge.High { background: #feebc8; color: #c05621; }
+        .risk-badge.Medium { background: #fefcbf; color: #975a16; }
+        .risk-badge.Low { background: #c6f6d5; color: #276749; }
+
+        .trend-up { color: #c53030; font-weight: 600; }
+        .trend-down { color: #276749; font-weight: 600; }
+        .trend-stable { color: #666; }
+
+        .forecast-controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+            flex-wrap: wrap;
+        }
+
+        .forecast-btn {
+            padding: 8px 16px;
+            border: 2px solid #2b6cb0;
+            background: white;
+            color: #2b6cb0;
+            border-radius: 6px;
+            cursor: pointer;
+            font-size: 13px;
+            font-weight: 600;
+            transition: all 0.2s;
+        }
+
+        .forecast-btn.active, .forecast-btn:hover {
+            background: #2b6cb0;
+            color: white;
+        }
+
+        .region-risk-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+            gap: 16px;
+            margin-bottom: 30px;
+        }
+
+        .region-card {
+            background: white;
+            border-radius: 12px;
+            padding: 16px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+            text-align: center;
+        }
+
+        .region-card h3 { font-size: 13px; color: #666; margin-bottom: 8px; }
+        .region-card .risk-score { font-size: 28px; font-weight: 700; margin-bottom: 6px; }
+        .region-card.Critical .risk-score { color: #c53030; }
+        .region-card.High .risk-score { color: #dd6b20; }
+        .region-card.Medium .risk-score { color: #d69e2e; }
+        .region-card.Low .risk-score { color: #276749; }
+
+        .risk-bar { background: #e2e8f0; border-radius: 4px; height: 6px; margin-top: 8px; }
+        .risk-fill { height: 6px; border-radius: 4px; }
+        .risk-fill.Critical { background: #c53030; }
+        .risk-fill.High { background: #dd6b20; }
+        .risk-fill.Medium { background: #d69e2e; }
+        .risk-fill.Low { background: #276749; }
+
+        footer {
+            text-align: center;
+            padding: 20px;
+            color: #888;
+            font-size: 13px;
+            border-top: 1px solid #eee;
+            margin-top: 20px;
+        }
+
+        .loading { text-align: center; padding: 40px; color: #888; }
+        .ml-tag {
+            background: #ebf4ff;
+            color: #2b6cb0;
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 11px;
+            font-weight: 600;
+        }
+    </style>
+</head>
+<body>
+
+<header>
+    <div>
+        <h1>Disease Outbreak Prediction System</h1>
+        <p>AI-powered early warning system for public health decision makers in Africa</p>
+    </div>
+    <div class="badge">ML Powered</div>
+</header>
+
+<div class="container">
+
+    <div class="summary-cards" id="summary-cards">
+        <div class="loading">Loading prediction data...</div>
+    </div>
+
+    <div style="margin-bottom: 16px;">
+        <h2 style="font-size: 16px; font-weight: 600; color: #333; margin-bottom: 16px;">Regional Risk Assessment</h2>
+        <div class="region-risk-grid" id="region-risk-grid">
+            <div class="loading">Loading regional risks...</div>
+        </div>
+    </div>
+
+    <div class="charts-grid">
+        <div class="chart-card">
+            <h2>
+                Disease Trend History
+                <span class="ml-tag">Historical Data</span>
+            </h2>
+            <div class="chart-container">
+                <canvas id="trendChart"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-card">
+            <h2>
+                30-Day Outbreak Forecast
+                <span class="ml-tag">ML Prediction</span>
+            </h2>
+            <div class="forecast-controls" id="forecast-controls">
+                <button class="forecast-btn active" onclick="loadForecast('Malaria', this)">Malaria</button>
+                <button class="forecast-btn" onclick="loadForecast('Cholera', this)">Cholera</button>
+                <button class="forecast-btn" onclick="loadForecast('Typhoid', this)">Typhoid</button>
+                <button class="forecast-btn" onclick="loadForecast('Meningitis', this)">Meningitis</button>
+                <button class="forecast-btn" onclick="loadForecast('COVID-19', this)">COVID-19</button>
+            </div>
+            <div class="chart-container">
+                <canvas id="forecastChart"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-card">
+            <h2>
+                Risk Score by Disease
+                <span class="ml-tag">Risk Analysis</span>
+            </h2>
+            <div class="chart-container">
+                <canvas id="riskChart"></canvas>
+            </div>
+        </div>
+
+        <div class="chart-card">
+            <h2>
+                Predicted Cases Next 4 Weeks
+                <span class="ml-tag">Forecast</span>
+            </h2>
+            <div class="chart-container">
+                <canvas id="predictionChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div class="risk-table-section">
+        <h2>Top 10 High Risk Outbreak Scenarios</h2>
+        <table>
+            <thead>
+                <tr>
+                    <th>Rank</th>
+                    <th>Disease</th>
+                    <th>Region</th>
+                    <th>Current Cases</th>
+                    <th>Risk Score</th>
+                    <th>Risk Level</th>
+                    <th>Confidence</th>
+                    <th>Trend</th>
+                </tr>
+            </thead>
+            <tbody id="risk-table-body">
+                <tr><td colspan="8" class="loading">Loading risk data...</td></tr>
+            </tbody>
+        </table>
+    </div>
+
+</div>
+
+<footer>
+    <p>Disease Outbreak Prediction System | Built by Emmanuel Owusu Adu | Health Informatics Research</p>
+    <p>Predictions are based on historical trends and environmental risk factors. Always consult public health authorities for official guidance.</p>
+</footer>
+
+<script>
+    let forecastChartInstance = null;
+
+    async function loadSummary() {
+        const response = await fetch('/api/top-risks');
+        const data = await response.json();
+
+        const critical = data.filter(d => d.risk_level === 'Critical').length;
+        const high = data.filter(d => d.risk_level === 'High').length;
+        const avgRisk = Math.round(data.reduce((sum, d) => sum + d.risk_score, 0) / data.length);
+        const maxRisk = Math.max(...data.map(d => d.risk_score));
+
+        document.getElementById('summary-cards').innerHTML = `
+            <div class="card critical">
+                <h3>Critical Risk Scenarios</h3>
+                <div class="value">${critical}</div>
+                <div class="subtitle">Requiring immediate action</div>
+            </div>
+            <div class="card high">
+                <h3>High Risk Scenarios</h3>
+                <div class="value">${high}</div>
+                <div class="subtitle">Requiring close monitoring</div>
+            </div>
+            <div class="card medium">
+                <h3>Average Risk Score</h3>
+                <div class="value">${avgRisk}</div>
+                <div class="subtitle">Across all diseases and regions</div>
+            </div>
+            <div class="card">
+                <h3>Highest Risk Score</h3>
+                <div class="value">${maxRisk}</div>
+                <div class="subtitle">Peak outbreak risk detected</div>
+            </div>
+            <div class="card success">
+                <h3>Diseases Monitored</h3>
+                <div class="value">5</div>
+                <div class="subtitle">Malaria, Cholera, Typhoid, Meningitis, COVID-19</div>
+            </div>
+            <div class="card">
+                <h3>Regions Covered</h3>
+                <div class="value">5</div>
+                <div class="subtitle">All major Ghana regions</div>
+            </div>
+        `;
+    }
+
+    async function loadRegionRisks() {
+        const response = await fetch('/api/risk-summary');
+        const data = await response.json();
+
+        document.getElementById('region-risk-grid').innerHTML = Object.entries(data).map(([region, info]) => `
+            <div class="region-card ${info.risk_level}">
+                <h3>${region}</h3>
+                <div class="risk-score">${info.risk_score}</div>
+                <span class="risk-badge ${info.risk_level}">${info.risk_level}</span>
+                <div class="risk-bar">
+                    <div class="risk-fill ${info.risk_level}" style="width: ${info.risk_score}%"></div>
+                </div>
+            </div>
+        `).join('');
+    }
+
+    async function loadTrendChart() {
+        const response = await fetch('/api/historical-trends');
+        const data = await response.json();
+
+        const colors = {
+            'Malaria': '#e53e3e',
+            'Cholera': '#3182ce',
+            'Typhoid': '#d69e2e',
+            'Meningitis': '#805ad5',
+            'COVID-19': '#dd6b20'
+        };
+
+        const datasets = Object.entries(data).map(([disease, values]) => ({
+            label: disease,
+            data: values.cases,
+            borderColor: colors[disease],
+            backgroundColor: colors[disease] + '20',
+            borderWidth: 2,
+            pointRadius: 2,
+            tension: 0.4,
+            fill: false
+        }));
+
+        const firstDisease = Object.keys(data)[0];
+        const labels = data[firstDisease] ? data[firstDisease].dates : [];
+
+        new Chart(document.getElementById('trendChart'), {
+            type: 'line',
+            data: { labels, datasets },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom' } },
+                scales: { y: { beginAtZero: true } }
+            }
+        });
+    }
+
+    async function loadForecast(disease, btn) {
+        document.querySelectorAll('.forecast-btn').forEach(b => b.classList.remove('active'));
+        if (btn) btn.classList.add('active');
+
+        const response = await fetch(`/api/disease-forecast/${disease}`);
+        const data = await response.json();
+
+        if (forecastChartInstance) {
+            forecastChartInstance.destroy();
+        }
+
+        forecastChartInstance = new Chart(document.getElementById('forecastChart'), {
+            type: 'line',
+            data: {
+                labels: [...data.historical_dates, ...data.forecast_dates],
+                datasets: [
+                    {
+                        label: `${disease} Historical`,
+                        data: [...data.historical_cases, ...Array(data.forecast_dates.length).fill(null)],
+                        borderColor: '#2b6cb0',
+                        backgroundColor: '#2b6cb020',
+                        borderWidth: 2,
+                        pointRadius: 2,
+                        tension: 0.4
+                    },
+                    {
+                        label: `${disease} Forecast`,
+                        data: [...Array(data.historical_dates.length).fill(null), ...data.forecast_cases],
+                        borderColor: '#c53030',
+                        backgroundColor: '#c5303020',
+                        borderWidth: 2,
+                        borderDash: [5, 5],
+                        pointRadius: 4,
+                        tension: 0.4
+                    }
+                ]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { position: 'bottom' } },
+                scales: { y: { beginAtZero: true } }
+            }
+        });
+    }
+
+    async function loadRiskChart() {
+        const response = await fetch('/api/top-risks');
+        const data = await response.json();
+
+        const diseaseRisks = {};
+        data.forEach(item => {
+            if (!diseaseRisks[item.disease]) diseaseRisks[item.disease] = [];
+            diseaseRisks[item.disease].push(item.risk_score);
+        });
+
+        const labels = Object.keys(diseaseRisks);
+        const avgRisks = labels.map(d => {
+            const scores = diseaseRisks[d];
+            return Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+        });
+
+        const colors = ['#e53e3e', '#3182ce', '#d69e2e', '#805ad5', '#dd6b20'];
+
+        new Chart(document.getElementById('riskChart'), {
+            type: 'bar',
+            data: {
+                labels,
+                datasets: [{
+                    label: 'Average Risk Score',
+                    data: avgRisks,
+                    backgroundColor: colors,
+                    borderRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true, max: 100 } }
+            }
+        });
+    }
+
+    async function loadPredictionChart() {
+        const response = await fetch('/api/predictions');
+        const data = await response.json();
+
+        const regionPredictions = {};
+        data.forEach(item => {
+            if (!regionPredictions[item.region]) regionPredictions[item.region] = 0;
+            regionPredictions[item.region] += item.predicted_cases;
+        });
+
+        const colors = ['#e53e3e', '#3182ce', '#d69e2e', '#805ad5', '#276749'];
+
+        new Chart(document.getElementById('predictionChart'), {
+            type: 'bar',
+            data: {
+                labels: Object.keys(regionPredictions),
+                datasets: [{
+                    label: 'Predicted Total Cases',
+                    data: Object.values(regionPredictions),
+                    backgroundColor: colors,
+                    borderRadius: 6
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: { legend: { display: false } },
+                scales: { y: { beginAtZero: true } }
+            }
+        });
+    }
+
+    async function loadRiskTable() {
+        const response = await fetch('/api/top-risks');
+        const data = await response.json();
+
+        const trendIcon = {
+            'Increasing': '<span class="trend-up">↑ Increasing</span>',
+            'Decreasing': '<span class="trend-down">↓ Decreasing</span>',
+            'Stable': '<span class="trend-stable">→ Stable</span>'
+        };
+
+        document.getElementById('risk-table-body').innerHTML = data.map((item, index) => `
+            <tr>
+                <td><strong>#${index + 1}</strong></td>
+                <td>${item.disease}</td>
+                <td>${item.region}</td>
+                <td>${item.current_cases.toLocaleString()}</td>
+                <td><strong>${item.risk_score}</strong>/100</td>
+                <td><span class="risk-badge ${item.risk_level}">${item.risk_level}</span></td>
+                <td>${item.confidence}%</td>
+                <td>${trendIcon[item.trend] || item.trend}</td>
+            </tr>
+        `).join('');
+    }
+
+    async function initDashboard() {
+        await loadSummary();
+        await loadRegionRisks();
+        await loadTrendChart();
+        await loadForecast('Malaria', null);
+        await loadRiskChart();
+        await loadPredictionChart();
+        await loadRiskTable();
+    }
+
+    initDashboard();
+</script>
+
+</body>
+</html>
