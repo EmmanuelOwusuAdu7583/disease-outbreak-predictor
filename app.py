@@ -14,7 +14,7 @@ import io
 
 app = Flask(__name__)
 app.secret_key = "kojo-outbreak-secret-2026-change-this"
-ADMIN_PASSWORD = "changeThisPassword123"
+ADMIN_PASSWORD = "kojo-outbreak-2026"
 def get_db():
     conn = sqlite3.connect("outbreaks.db")
     conn.row_factory = sqlite3.Row
