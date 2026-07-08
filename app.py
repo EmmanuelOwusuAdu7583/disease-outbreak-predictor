@@ -11,10 +11,11 @@ import random
 import math
 import csv
 import io
+import os
 
 app = Flask(__name__)
-app.secret_key = "kojo-outbreak-secret-2026-change-this"
-ADMIN_PASSWORD = "kojo-outbreak-2026"
+app.secret_key = os.environ.get("SECRET_KEY", "fallback-password-for-local-testing")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "fallback-password-for-local-dev-only")
 def get_db():
     conn = sqlite3.connect("outbreaks.db")
     conn.row_factory = sqlite3.Row
