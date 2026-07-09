@@ -1,24 +1,30 @@
 # ============================================
 # PREDICTIVE ANALYTICS FOR DISEASE OUTBREAKS
-# Building Real Health Informatics Projects
+# Converted to PostgreSQL for persistent storage on Render
 # By Emmanuel Owusu Adu
 # ============================================
 
 from flask import Flask, render_template, jsonify, request, session, redirect, url_for
-import sqlite3
+import psycopg2
+import psycopg2.extras
+from psycopg2.extras import execute_values
 from datetime import datetime, timedelta
 import random
-import math
 import csv
 import io
+import os
 
 app = Flask(__name__)
-app.secret_key = "kojo-outbreak-secret-2026-change-this"
-ADMIN_PASSWORD = "kojo-outbreak-2026"
+app.secret_key = os.environ.get("SECRET_KEY", "local-dev-secret-change-this")
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "local-dev-password-change-this")
+
+DATABASE_URL = os.environ.get("DATABASE_URL")
+
+
 def get_db():
-    conn = sqlite3.connect("outbreaks.db")
-    conn.row_factory = sqlite3.Row
+    conn = psycopg2.connect(DATABASE_URL, cursor_factory=psycopg2.extras.RealDictCursor)
     return conn
+
 
 def create_database():
     conn = get_db()
@@ -26,7 +32,7 @@ def create_database():
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS disease_history (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             disease TEXT NOT NULL,
             region TEXT NOT NULL,
             cases INTEGER NOT NULL,
@@ -39,7 +45,7 @@ def create_database():
 
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS risk_factors (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             region TEXT NOT NULL,
             rainfall_mm REAL NOT NULL,
             temperature_celsius REAL NOT NULL,
@@ -51,25 +57,39 @@ def create_database():
     """)
 
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS predictions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            disease TEXT NOT NULL,
+        CREATE TABLE IF NOT EXISTS submitters (
+            id SERIAL PRIMARY KEY,
+            name TEXT NOT NULL,
+            email TEXT NOT NULL,
+            organization TEXT,
+            created_at TEXT NOT NULL
+        )
+    """)
+
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS submissions (
+            id SERIAL PRIMARY KEY,
+            submitter_id INTEGER NOT NULL REFERENCES submitters (id),
             region TEXT NOT NULL,
-            predicted_cases INTEGER NOT NULL,
-            risk_level TEXT NOT NULL,
-            confidence_score REAL NOT NULL,
-            prediction_date TEXT NOT NULL,
-            target_date TEXT NOT NULL
+            disease TEXT NOT NULL,
+            number_of_cases INTEGER NOT NULL,
+            date_observed TEXT NOT NULL,
+            observation_notes TEXT,
+            submitted_at TEXT NOT NULL
         )
     """)
 
     conn.commit()
-    seed_historical_data(cursor, conn)
+    cursor.close()
+    seed_historical_data(conn)
     conn.close()
 
-def seed_historical_data(cursor, conn):
-    cursor.execute("SELECT COUNT(*) FROM disease_history")
-    if cursor.fetchone()[0] > 0:
+
+def seed_historical_data(conn):
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) as count FROM disease_history")
+    if cursor.fetchone()["count"] > 0:
+        cursor.close()
         return
 
     regions = ["Greater Accra", "Ashanti", "Northern", "Western", "Eastern"]
@@ -112,9 +132,9 @@ def seed_historical_data(cursor, conn):
                     current_date.strftime("%Y-%m-%d")
                 ))
 
-    cursor.executemany("""
+    execute_values(cursor, """
         INSERT INTO disease_history (disease, region, cases, deaths, week_number, year, report_date)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES %s
     """, records)
 
     risk_data = [
@@ -125,18 +145,19 @@ def seed_historical_data(cursor, conn):
         ("Eastern", 58.7, 27.9, 620, 6.1, 5.9, datetime.now().strftime("%Y-%m-%d")),
     ]
 
-    cursor.executemany("""
+    execute_values(cursor, """
         INSERT INTO risk_factors (region, rainfall_mm, temperature_celsius, population_density, healthcare_access_score, sanitation_score, report_date)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES %s
     """, risk_data)
 
     conn.commit()
+    cursor.close()
 
 
 def simple_linear_prediction(values, weeks_ahead=4):
     n = len(values)
     if n < 2:
-        return values[-1] if values else 0
+        return [values[-1]] if values else [0]
 
     x_mean = (n - 1) / 2
     y_mean = sum(values) / n
@@ -144,11 +165,7 @@ def simple_linear_prediction(values, weeks_ahead=4):
     numerator = sum((i - x_mean) * (values[i] - y_mean) for i in range(n))
     denominator = sum((i - x_mean) ** 2 for i in range(n))
 
-    if denominator == 0:
-        slope = 0
-    else:
-        slope = numerator / denominator
-
+    slope = numerator / denominator if denominator != 0 else 0
     intercept = y_mean - slope * x_mean
     predictions = []
 
@@ -191,7 +208,6 @@ def calculate_risk_score(disease, region, recent_cases, trend_slope, risk_factor
         risk_level = "Low"
 
     confidence = min(95, 60 + random.uniform(10, 30))
-
     return round(total_risk, 1), risk_level, round(confidence, 1)
 
 
@@ -204,7 +220,6 @@ def dashboard():
 def get_historical_trends():
     conn = get_db()
     cursor = conn.cursor()
-
     cursor.execute("""
         SELECT disease, report_date, SUM(cases) as total_cases
         FROM disease_history
@@ -213,6 +228,7 @@ def get_historical_trends():
         ORDER BY report_date
     """)
     data = cursor.fetchall()
+    cursor.close()
     conn.close()
 
     result = {}
@@ -238,14 +254,13 @@ def get_predictions():
 
     diseases = ["Malaria", "Cholera", "Typhoid", "Meningitis", "COVID-19"]
     regions = ["Greater Accra", "Ashanti", "Northern", "Western", "Eastern"]
-
     predictions = []
 
     for disease in diseases:
         for region in regions:
             cursor.execute("""
                 SELECT cases FROM disease_history
-                WHERE disease = ? AND region = ?
+                WHERE disease = %s AND region = %s
                 ORDER BY report_date DESC
                 LIMIT 12
             """, (disease, region))
@@ -255,9 +270,7 @@ def get_predictions():
             if not recent_data:
                 continue
 
-            cursor.execute("""
-                SELECT * FROM risk_factors WHERE region = ?
-            """, (region,))
+            cursor.execute("SELECT * FROM risk_factors WHERE region = %s", (region,))
             risk_row = cursor.fetchone()
             risk_factors = dict(risk_row) if risk_row else {}
 
@@ -289,8 +302,8 @@ def get_predictions():
                 "target_date": target_date
             })
 
+    cursor.close()
     conn.close()
-
     predictions.sort(key=lambda x: x["risk_score"], reverse=True)
     return jsonify(predictions)
 
@@ -302,7 +315,6 @@ def get_risk_summary():
 
     diseases = ["Malaria", "Cholera", "Typhoid", "Meningitis", "COVID-19"]
     regions = ["Greater Accra", "Ashanti", "Northern", "Western", "Eastern"]
-
     region_risks = {}
 
     for region in regions:
@@ -312,14 +324,14 @@ def get_risk_summary():
         for disease in diseases:
             cursor.execute("""
                 SELECT cases FROM disease_history
-                WHERE disease = ? AND region = ?
+                WHERE disease = %s AND region = %s
                 ORDER BY report_date DESC
                 LIMIT 8
             """, (disease, region))
             recent_data = [row["cases"] for row in cursor.fetchall()]
 
             if recent_data:
-                cursor.execute("SELECT * FROM risk_factors WHERE region = ?", (region,))
+                cursor.execute("SELECT * FROM risk_factors WHERE region = %s", (region,))
                 risk_row = cursor.fetchone()
                 risk_factors = dict(risk_row) if risk_row else {}
 
@@ -345,11 +357,9 @@ def get_risk_summary():
         else:
             risk_level = "Low"
 
-        region_risks[region] = {
-            "risk_score": avg_risk,
-            "risk_level": risk_level
-        }
+        region_risks[region] = {"risk_score": avg_risk, "risk_level": risk_level}
 
+    cursor.close()
     conn.close()
     return jsonify(region_risks)
 
@@ -358,15 +368,15 @@ def get_risk_summary():
 def get_disease_forecast(disease):
     conn = get_db()
     cursor = conn.cursor()
-
     cursor.execute("""
         SELECT report_date, SUM(cases) as total_cases
         FROM disease_history
-        WHERE disease = ? AND year >= 2024
+        WHERE disease = %s AND year >= 2024
         GROUP BY report_date
         ORDER BY report_date
     """, (disease,))
     historical = cursor.fetchall()
+    cursor.close()
     conn.close()
 
     if not historical:
@@ -377,7 +387,7 @@ def get_disease_forecast(disease):
 
     future_predictions = simple_linear_prediction(cases, weeks_ahead=8)
     last_date = datetime.strptime(dates[-1], "%Y-%m-%d")
-    future_dates = [(last_date + timedelta(weeks=i+1)).strftime("%Y-%m-%d") for i in range(8)]
+    future_dates = [(last_date + timedelta(weeks=i + 1)).strftime("%Y-%m-%d") for i in range(8)]
 
     every_nth = 3
     return jsonify({
@@ -396,21 +406,20 @@ def get_top_risks():
 
     diseases = ["Malaria", "Cholera", "Typhoid", "Meningitis", "COVID-19"]
     regions = ["Greater Accra", "Ashanti", "Northern", "Western", "Eastern"]
-
     all_risks = []
 
     for disease in diseases:
         for region in regions:
             cursor.execute("""
                 SELECT cases FROM disease_history
-                WHERE disease = ? AND region = ?
+                WHERE disease = %s AND region = %s
                 ORDER BY report_date DESC
                 LIMIT 8
             """, (disease, region))
             recent_data = [row["cases"] for row in cursor.fetchall()]
 
             if recent_data:
-                cursor.execute("SELECT * FROM risk_factors WHERE region = ?", (region,))
+                cursor.execute("SELECT * FROM risk_factors WHERE region = %s", (region,))
                 risk_row = cursor.fetchone()
                 risk_factors = dict(risk_row) if risk_row else {}
 
@@ -435,42 +444,12 @@ def get_top_risks():
                 })
 
     all_risks.sort(key=lambda x: x["risk_score"], reverse=True)
+    cursor.close()
     conn.close()
     return jsonify(all_risks[:10])
 
-def create_submissions_table():
-    conn = get_db()
-    cursor = conn.cursor()
 
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS submitters (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            name TEXT NOT NULL,
-            email TEXT NOT NULL,
-            organization TEXT,
-            created_at TEXT NOT NULL
-        )
-    """)
-
-    cursor.execute("""
-        CREATE TABLE IF NOT EXISTS submissions (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
-            submitter_id INTEGER NOT NULL,
-            region TEXT NOT NULL,
-            disease TEXT NOT NULL,
-            number_of_cases INTEGER NOT NULL,
-            date_observed TEXT NOT NULL,
-            observation_notes TEXT,
-            submitted_at TEXT NOT NULL,
-            FOREIGN KEY (submitter_id) REFERENCES submitters (id)
-        )
-    """)
-
-    conn.commit()
-    conn.close()
-
-
-# ============ PUBLIC ROUTES ============
+# ============ PUBLIC SUBMISSION ROUTES ============
 
 @app.route("/submit")
 def submit_form():
@@ -506,7 +485,7 @@ def submit_report():
     conn = get_db()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT id FROM submitters WHERE email = ?", (email,))
+    cursor.execute("SELECT id FROM submitters WHERE email = %s", (email,))
     existing = cursor.fetchone()
 
     if existing:
@@ -514,17 +493,18 @@ def submit_report():
     else:
         cursor.execute("""
             INSERT INTO submitters (name, email, organization, created_at)
-            VALUES (?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s) RETURNING id
         """, (name, email, organization, datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
-        submitter_id = cursor.lastrowid
+        submitter_id = cursor.fetchone()["id"]
 
     cursor.execute("""
         INSERT INTO submissions (submitter_id, region, disease, number_of_cases, date_observed, observation_notes, submitted_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s, %s, %s)
     """, (submitter_id, region, disease, number_of_cases, date_observed, notes,
           datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
 
     conn.commit()
+    cursor.close()
     conn.close()
 
     return jsonify({"success": True, "message": "Thank you. Your report has been submitted successfully."})
@@ -577,6 +557,7 @@ def admin_get_submissions():
         ORDER BY s.submitted_at DESC
     """)
     data = [dict(row) for row in cursor.fetchall()]
+    cursor.close()
     conn.close()
     return jsonify(data)
 
@@ -595,8 +576,8 @@ def admin_summary():
     cursor.execute("SELECT COUNT(DISTINCT submitter_id) as total FROM submissions")
     total_submitters = cursor.fetchone()["total"]
 
-    cursor.execute("SELECT SUM(number_of_cases) as total FROM submissions")
-    total_cases_reported = cursor.fetchone()["total"] or 0
+    cursor.execute("SELECT COALESCE(SUM(number_of_cases), 0) as total FROM submissions")
+    total_cases_reported = cursor.fetchone()["total"]
 
     cursor.execute("""
         SELECT region, COUNT(*) as report_count, SUM(number_of_cases) as total_cases
@@ -614,6 +595,7 @@ def admin_summary():
     """)
     by_disease = [dict(row) for row in cursor.fetchall()]
 
+    cursor.close()
     conn.close()
 
     return jsonify({
@@ -641,6 +623,7 @@ def export_csv():
         ORDER BY s.submitted_at DESC
     """)
     rows = cursor.fetchall()
+    cursor.close()
     conn.close()
 
     output = io.StringIO()
@@ -661,15 +644,12 @@ def export_csv():
         "Content-Disposition": "attachment; filename=outbreak_submissions.csv"
     }
 
-create_submissions_table()
+
+create_database()
 
 if __name__ == "__main__":
-    create_database()
     print("Disease Outbreak Prediction System starting...")
     print("Open your browser and go to: http://127.0.0.1:5000")
     print("Public submission form: http://127.0.0.1:5000/submit")
     print("Admin login: http://127.0.0.1:5000/admin/login")
     app.run(debug=True)
-
-
-    
